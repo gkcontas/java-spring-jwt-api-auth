@@ -1,0 +1,26 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: auth-api
+  datasource:
+    url: jdbc:postgresql://localhost:5432/authapi
+    username: authapi
+    password: authapi
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+app:
+  jwt:
+    # Demo-only secret; in a real deployment this must come from a secret
+    # manager / environment variable, never be committed, and be at least
+    # 256 bits (32 bytes) long for HS256.
+    secret: "change-this-demo-secret-to-a-real-256-bit-value-before-any-real-use"
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d

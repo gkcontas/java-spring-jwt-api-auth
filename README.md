@@ -63,7 +63,15 @@ Access token e refresh token são o mesmo tipo de JWT, assinados com a mesma cha
 - `security`/`service` — testes unitários (geração/validação de JWT, regras de registro/login/refresh com repositórios mockados), não precisam de Docker.
 - `integration` — testes de integração via MockMvc contra um PostgreSQL real (Testcontainers), cobrindo o fluxo completo de registro → login → acesso a `/profile` → 401 sem token → 403 em `/admin/users` sem a role `ROLE_ADMIN` → 200 depois de promover o usuário → fluxo de refresh token (incluindo rejeitar um access token usado como refresh).
 
-> **Nota sobre o ambiente de desenvolvimento usado para este projeto**: neste sandbox específico, os testes de integração baseados em Testcontainers não executam pela mesma causa raiz observada nos projetos [3](../java-spring-kafka-pipeline-eventos-cliques), [5](../java-spring-selenium-painel-tarefas), [6](../java-spring-graphql-biblioteca) e [7](../java-spring-redis-encurtador-url). Os 11 testes unitários passam normalmente, tudo compila, e o fluxo completo (registro, login, acesso autenticado, 401/403, promoção a admin, refresh) foi validado manualmente rodando a aplicação de ponta a ponta.
+Suíte completa: **19 testes, todos passando** — 11 unitários e 8 de integração contra um PostgreSQL real.
+
+### Nota sobre Testcontainers e Docker Engine recente
+
+Se os testes falharem com `client version 1.32 is too old. Minimum supported API version is 1.40`, a causa é o `docker-java` embutido no Testcontainers negociar a API 1.32, abaixo do mínimo aceito pelo Docker Engine 29+. Correção global, de uma linha:
+
+```bash
+echo 'api.version=1.44' > ~/.docker-java.properties
+```
 
 ## Endpoints principais
 

@@ -1,109 +1,104 @@
 # API de Autenticação e Autorização
 
-API de autenticação em Java com Spring Boot e Spring Security, com cadastro/login, emissão e validação de JWT (access + refresh token), e endpoints protegidos por papel (role).
+API de autenticação com Spring Security e JWT: cadastro, login, emissão de access token e refresh token, e endpoints protegidos por papel.
 
-## Status
+Access token e refresh token são JWTs assinados com a mesma chave, diferenciados por um claim `type`. O filtro de autenticação só aceita tokens de acesso e o endpoint de renovação só aceita tokens de refresh, então um não serve no lugar do outro.
 
-✅ MVP implementado.
+## Tecnologias e bibliotecas
 
-## Stack
+| | |
+|---|---|
+| Linguagem | Java 17 |
+| Framework | Spring Boot 3.3, Spring Security 6 |
+| Tokens | jjwt 0.13 (HMAC-SHA512) |
+| Persistência | Spring Data JPA, PostgreSQL 16 |
+| Migrations | Flyway |
+| Validação | Bean Validation |
+| Build | Gradle Kotlin DSL (wrapper `gradlew`) |
+| Testes | JUnit 5, Mockito, Spring Security Test, Testcontainers |
+| Apoio | Lombok |
 
-- Java 17 + Spring Boot 3.3 (Spring Security)
-- JWT via [jjwt](https://github.com/jwtk/jjwt) (HMAC-SHA512)
-- PostgreSQL + Spring Data JPA + Flyway
-- Lombok (nas entidades JPA)
-- Gradle (Kotlin DSL) + wrapper `gradlew`
-- Testcontainers (testes de integração) + Spring Security Test + JUnit 5 + Mockito
+## Pré-requisitos
 
-## Fluxo de autenticação
-
-```
-POST /auth/register  →  BCrypt(senha)  →  PostgreSQL (role padrão: ROLE_USER)
-
-POST /auth/login  →  AuthenticationManager (valida email/senha)  →  JWT access + refresh
-
-Requisição em endpoint protegido
-  → Authorization: Bearer <access token>
-  → JwtAuthenticationFilter valida assinatura, expiração e tipo do token
-  → popula o SecurityContext com as roles do token
-  → regra de autorização do endpoint decide 200 / 401 / 403
-
-POST /auth/refresh  →  valida que é um refresh token válido  →  novo par access + refresh
-```
-
-Access token e refresh token são o mesmo tipo de JWT, assinados com a mesma chave, mas carregam um claim `type` (`access` ou `refresh`) — o filtro de autenticação só aceita tokens `access`, e `/auth/refresh` só aceita `refresh`. Isso evita que um refresh token vazado seja usado diretamente para chamar endpoints protegidos, e que um access token seja usado para gerar novos tokens indefinidamente.
-
-## Boas práticas aplicadas
-
-- Senha **nunca** armazenada nem logada em texto plano — sempre `BCrypt` (via `PasswordEncoder`), com o hash de custo adaptativo padrão do Spring Security.
-- Mensagem de erro de login genérica ("Invalid email or password") tanto para e-mail inexistente quanto para senha errada — evita enumeração de usuários cadastrados.
-- Access token de vida curta (15 min) e refresh token de vida mais longa (7 dias), configuráveis via `app.jwt.access-token-ttl` / `app.jwt.refresh-token-ttl`.
-- `SessionCreationPolicy.STATELESS` — nenhuma sessão HTTP é criada; toda autenticação é reconstruída a partir do JWT em cada requisição.
-- Erros de autenticação (401) e autorização (403) retornam um corpo JSON padronizado (`JwtAuthenticationEntryPoint` / `JwtAccessDeniedHandler`), consistente com o restante da API, em vez da página de erro padrão do Spring.
-- O segredo do JWT em `application.yml` é **só para demonstração**; em um deploy real ele viria de uma variável de ambiente/secret manager e nunca seria versionado.
+- JDK 17 ou superior
+- Docker
 
 ## Como rodar
 
-1. Suba o PostgreSQL:
-   ```bash
-   docker compose up -d
-   ```
-2. Rode a aplicação:
-   ```bash
-   ./gradlew bootRun
-   ```
-3. A API sobe em `http://localhost:8080`.
-
-## Como rodar os testes
-
 ```bash
-./gradlew test
+docker compose up -d
 ```
 
-- `security`/`service` — testes unitários (geração/validação de JWT, regras de registro/login/refresh com repositórios mockados), não precisam de Docker.
-- `integration` — testes de integração via MockMvc contra um PostgreSQL real (Testcontainers), cobrindo o fluxo completo de registro → login → acesso a `/profile` → 401 sem token → 403 em `/admin/users` sem a role `ROLE_ADMIN` → 200 depois de promover o usuário → fluxo de refresh token (incluindo rejeitar um access token usado como refresh).
-
-Suíte completa: **19 testes, todos passando** — 11 unitários e 8 de integração contra um PostgreSQL real.
-
-### Nota sobre Testcontainers e Docker Engine recente
-
-Se os testes falharem com `client version 1.32 is too old. Minimum supported API version is 1.40`, a causa é o `docker-java` embutido no Testcontainers negociar a API 1.32, abaixo do mínimo aceito pelo Docker Engine 29+. Correção global, de uma linha:
-
 ```bash
-echo 'api.version=1.44' > ~/.docker-java.properties
+./gradlew bootRun
 ```
 
-## Endpoints principais
+A API fica em `http://localhost:8080`.
 
-| Método | Rota             | Autenticação      | Descrição                                          |
-|--------|-------------------|-------------------|-------------------------------------------------------|
-| POST   | `/auth/register`  | pública           | Cria usuário com senha em hash (role padrão `ROLE_USER`) |
-| POST   | `/auth/login`     | pública           | Autentica e retorna `{ accessToken, refreshToken }`     |
-| POST   | `/auth/refresh`   | pública (refresh) | Troca um refresh token válido por um novo par de tokens |
-| GET    | `/profile`        | qualquer usuário  | Dados do usuário autenticado                            |
-| GET    | `/admin/users`    | `ROLE_ADMIN`      | Lista todos os usuários                                 |
+## Fluxo
 
-## Exemplo de uso
+```
+POST /auth/register  →  senha com BCrypt  →  PostgreSQL (role padrão ROLE_USER)
+
+POST /auth/login     →  valida credenciais  →  { accessToken, refreshToken }
+
+Endpoint protegido   →  Authorization: Bearer <accessToken>
+                     →  filtro valida assinatura, expiração e tipo
+                     →  popula o SecurityContext com as roles do token
+
+POST /auth/refresh   →  valida o refresh token  →  novo par de tokens
+```
+
+## Decisões de segurança
+
+- Senhas guardadas apenas como hash BCrypt, nunca em texto plano.
+- Mensagem de erro de login idêntica para e-mail inexistente e senha errada, para não permitir enumerar usuários.
+- Access token de 15 minutos e refresh token de 7 dias, configuráveis em `app.jwt.access-token-ttl` e `app.jwt.refresh-token-ttl`.
+- Sessão HTTP desligada (`STATELESS`): a autenticação é reconstruída do token a cada requisição.
+- Respostas 401 e 403 em JSON padronizado, no mesmo formato do resto da API.
+
+O segredo em `application.yml` existe só para rodar localmente. Em um ambiente real ele viria de variável de ambiente ou gerenciador de segredos.
+
+## Endpoints
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| `POST` | `/auth/register` | público | Cria o usuário com a role `ROLE_USER` |
+| `POST` | `/auth/login` | público | Retorna `accessToken` e `refreshToken` |
+| `POST` | `/auth/refresh` | público | Troca um refresh token por um novo par |
+| `GET` | `/profile` | autenticado | Dados do usuário do token |
+| `GET` | `/admin/users` | `ROLE_ADMIN` | Lista todos os usuários |
+
+## Exemplos de uso
 
 ```bash
-# Cadastrar usuário
 curl -s -X POST localhost:8080/auth/register \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "password": "supersecret123"}'
+```
 
-# Login
+```bash
 curl -s -X POST localhost:8080/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "alice@example.com", "password": "supersecret123"}'
-# {"accessToken": "...", "refreshToken": "..."}
+```
 
-# Acessar endpoint protegido
+```bash
 curl -s localhost:8080/profile -H "Authorization: Bearer <accessToken>"
+```
 
-# Renovar tokens
+```bash
 curl -s -X POST localhost:8080/auth/refresh \
   -H "Content-Type: application/json" \
   -d '{"refreshToken": "<refreshToken>"}'
 ```
 
-Não há endpoint para promover um usuário a `ROLE_ADMIN` (fora do escopo do MVP — veja o `PLANNING.md`); para testar `/admin/users` localmente, insira a linha em `user_roles` diretamente no Postgres e faça login novamente (as roles são lidas no momento da emissão do token).
+Para experimentar `/admin/users`, insira a role na tabela `user_roles` pelo banco e faça login de novo — as roles entram no token no momento da emissão.
+
+## Testes
+
+```bash
+./gradlew test
+```
+
+19 testes: 11 unitários e 8 de integração contra um PostgreSQL em container, cobrindo o caminho completo de registro, login, acesso autenticado, 401 sem token, 403 sem a role e renovação de tokens.
